@@ -589,7 +589,9 @@ class GCPSwitcher:
         clusters = self.get_clusters()
         
         if not clusters:
-            print_warning("No GKE clusters found.")
+            print_warning("No GKE clusters found in this project.")
+            # 기존 context 해제
+            self.clear_kubectl_context()
             return None
         
         display_clusters = []
@@ -625,6 +627,15 @@ class GCPSwitcher:
         info = cluster_info[choice]
         self.get_cluster_credentials(info['name'], info['location'], info['regional'])
         return info['name']
+    
+    def clear_kubectl_context(self):
+        """kubectl context 해제"""
+        try:
+            run_command(['kubectl', 'config', 'unset', 'current-context'], capture=False)
+            self.current_context = None
+            print_warning("kubectl context has been cleared.")
+        except subprocess.CalledProcessError:
+            pass
     
     def menu_select_context(self) -> Optional[str]:
         """kubectl 컨텍스트 선택"""
