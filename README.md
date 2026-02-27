@@ -57,7 +57,14 @@ gke-gcloud-auth-plugin --version
 
 ## 🚀 설치
 
-### pipx 설치 (권장)
+### Homebrew (macOS)
+
+```bash
+brew tap EunyoungPark327/tap
+brew install gcp-context-switcher
+```
+
+### pipx
 
 ```bash
 pipx install git+https://github.com/EunyoungPark327/gcp-context-switcher.git
@@ -71,17 +78,13 @@ cd gcp-context-switcher
 pipx install -e .
 ```
 
-### PATH 설정
-
-설치 후 `gcp-switcher` 명령어가 인식되지 않으면, 사용 중인 셸에 맞게 PATH를 추가하세요.
-
-```bash
-# zsh (~/.zshrc)
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
-
-# bash (~/.bashrc)
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
-```
+> **Note:** pipx로 설치한 경우 `gcp-switcher` 명령어가 인식되지 않으면 PATH를 추가하세요.
+> ```bash
+> # zsh
+> echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+> # bash
+> echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+> ```
 
 ## 📖 사용법
 
