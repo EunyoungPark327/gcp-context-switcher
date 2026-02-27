@@ -35,15 +35,32 @@
 ## 📋 요구사항
 
 - Python 3.12+
+- [pipx](https://pipx.pypa.io/) 설치
 - `gcloud` CLI 설치 및 초기화
+- `gke-gcloud-auth-plugin` 설치 (GKE 사용 시 필수)
 - `kubectl` 설치 (GKE 사용 시)
+
+### gke-gcloud-auth-plugin 설치
+
+GKE 클러스터 인증에 필요한 플러그인입니다.
+
+```bash
+# macOS
+gcloud components install gke-gcloud-auth-plugin
+
+# Debian/Ubuntu (apt로 gcloud 설치한 경우)
+sudo apt-get install google-cloud-cli-gke-gcloud-auth-plugin
+
+# 설치 확인
+gke-gcloud-auth-plugin --version
+```
 
 ## 🚀 설치
 
-### pip 설치 (권장)
+### pipx 설치 (권장)
 
 ```bash
-pip install git+https://github.com/EunyoungPark327/gcp-context-switcher.git
+pipx install git+https://github.com/EunyoungPark327/gcp-context-switcher.git
 ```
 
 ### 수동 설치
@@ -51,7 +68,19 @@ pip install git+https://github.com/EunyoungPark327/gcp-context-switcher.git
 ```bash
 git clone https://github.com/EunyoungPark327/gcp-context-switcher.git
 cd gcp-context-switcher
-pip install -e .
+pipx install -e .
+```
+
+### PATH 설정
+
+설치 후 `gcp-switcher` 명령어가 인식되지 않으면, 사용 중인 셸에 맞게 PATH를 추가하세요.
+
+```bash
+# zsh (~/.zshrc)
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+
+# bash (~/.bashrc)
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 ```
 
 ## 📖 사용법

@@ -18,8 +18,58 @@ import os
 import tty
 import termios
 import re
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict, Tuple, Callable
 from dataclasses import dataclass
+from pathlib import Path
+
+
+class FavoritesManager:
+    """프로젝트 즐겨찾기 관리"""
+
+    CONFIG_DIR = Path.home() / ".config" / "gcp-switcher"
+    FAVORITES_FILE = CONFIG_DIR / "favorites.json"
+
+    def __init__(self):
+        self._favorites: List[str] = []
+        self.load()
+
+    def load(self):
+        try:
+            if self.FAVORITES_FILE.exists():
+                data = json.loads(self.FAVORITES_FILE.read_text())
+                self._favorites = data.get("projects", [])
+        except (json.JSONDecodeError, OSError):
+            self._favorites = []
+
+    def save(self):
+        self.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        self.FAVORITES_FILE.write_text(json.dumps({"projects": self._favorites}, indent=2))
+
+    def add(self, project: str):
+        if project not in self._favorites:
+            self._favorites.append(project)
+            self.save()
+
+    def remove(self, project: str):
+        if project in self._favorites:
+            self._favorites.remove(project)
+            self.save()
+
+    def toggle(self, project: str) -> bool:
+        """토글 후 즐겨찾기 여부 반환"""
+        if project in self._favorites:
+            self.remove(project)
+            return False
+        else:
+            self.add(project)
+            return True
+
+    def is_favorite(self, project: str) -> bool:
+        return project in self._favorites
+
+    def get_all(self) -> List[str]:
+        return list(self._favorites)
+
 
 # 색상 코드
 class Colors:
@@ -176,6 +226,20 @@ def print_warning(text: str):
 def print_spinner(text: str):
     print(f"   {Colors.BRIGHT_CYAN}◐{Colors.RESET} {text}")
 
+def wait_for_keypress(message: str = "Press Enter or ESC to continue..."):
+    """사용자가 Enter 또는 ESC를 누를 때까지 대기"""
+    print(f"\n   {Colors.DIM}{message}{Colors.RESET}")
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        while True:
+            ch = sys.stdin.read(1)
+            if ch in ('\r', '\n', '\x1b', '\x03'):
+                break
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
 def run_command(cmd: List[str], capture: bool = True, check: bool = True) -> Optional[str]:
     """명령어 실행"""
     try:
@@ -197,7 +261,8 @@ def run_command(cmd: List[str], capture: bool = True, check: bool = True) -> Opt
 class InteractiveSelector:
     """화살표 키로 선택하는 인터랙티브 셀렉터 (검색 기능 포함)"""
     
-    def __init__(self, items: List[str], prompt: str, current_marker: str = None, icon: str = "", header: str = ""):
+    def __init__(self, items: List[str], prompt: str, current_marker: str = None, icon: str = "", header: str = "",
+                 on_toggle_favorite: Callable[[str], Optional[List[str]]] = None):
         self.original_items = items
         self.items = items
         self.prompt = prompt
@@ -208,7 +273,8 @@ class InteractiveSelector:
         self.scroll_offset = 0
         self.search_mode = False
         self.search_query = ""
-        
+        self.on_toggle_favorite = on_toggle_favorite
+
         # 현재 항목이 있으면 그 위치에서 시작
         if current_marker:
             for i, item in enumerate(items):
@@ -264,6 +330,8 @@ class InteractiveSelector:
                     return 'DOWN'
                 elif ch == 'k':
                     return 'UP'
+                elif ch == 'f' or ch == 'F':
+                    return 'FAVORITE'
             
             return ch
         finally:
@@ -353,7 +421,8 @@ class InteractiveSelector:
         if self.search_mode:
             print(f"   {Colors.BRIGHT_CYAN}╰─{Colors.RESET} {Colors.DIM}Enter{Colors.RESET} done  {Colors.DIM}ESC{Colors.RESET} cancel")
         else:
-            print(f"   {Colors.BRIGHT_CYAN}╰─{Colors.RESET} {Colors.DIM}↑↓{Colors.RESET} move  {Colors.DIM}/{Colors.RESET} search  {Colors.DIM}Enter{Colors.RESET} select  {Colors.DIM}q{Colors.RESET} quit")
+            fav_hint = f"  {Colors.DIM}f{Colors.RESET} favorite" if self.on_toggle_favorite else ""
+            print(f"   {Colors.BRIGHT_CYAN}╰─{Colors.RESET} {Colors.DIM}↑↓{Colors.RESET} move  {Colors.DIM}/{Colors.RESET} search  {Colors.DIM}Enter{Colors.RESET} select{fav_hint}  {Colors.DIM}q/ESC{Colors.RESET} quit")
     
     def select(self) -> Optional[str]:
         """선택 UI 실행"""
@@ -386,14 +455,37 @@ class InteractiveSelector:
                         self._filter_items()
                 else:
                     if key == 'UP':
-                        self.selected_index = max(0, self.selected_index - 1)
+                        new_idx = max(0, self.selected_index - 1)
+                        # 구분선 스킵
+                        if self.items and self.items[new_idx].startswith("────") and new_idx > 0:
+                            new_idx -= 1
+                        self.selected_index = new_idx
                     elif key == 'DOWN':
-                        self.selected_index = min(len(self.items) - 1, self.selected_index + 1) if self.items else 0
+                        if self.items:
+                            new_idx = min(len(self.items) - 1, self.selected_index + 1)
+                            # 구분선 스킵
+                            if self.items[new_idx].startswith("────") and new_idx < len(self.items) - 1:
+                                new_idx += 1
+                            self.selected_index = new_idx
                     elif key == 'ENTER':
                         if self.items:
                             show_cursor()
                             clear_screen()
                             return self.items[self.selected_index]
+                    elif key == 'FAVORITE':
+                        if self.on_toggle_favorite and self.items:
+                            current_item = self.items[self.selected_index]
+                            new_items = self.on_toggle_favorite(current_item)
+                            if new_items is not None:
+                                # 현재 선택된 항목의 원본 이름 추출 (⭐ 접두어 제거)
+                                raw_name = current_item.replace("⭐ ", "")
+                                self.original_items = new_items
+                                self._filter_items()
+                                # 토글 후 같은 항목으로 커서 복귀
+                                for i, item in enumerate(self.items):
+                                    if raw_name in item:
+                                        self.selected_index = i
+                                        break
                     elif key == 'SEARCH':
                         self.search_mode = True
                     elif key in ('QUIT', 'ESC'):
@@ -418,6 +510,7 @@ class GCPSwitcher:
         self.current_project: Optional[str] = None
         self.current_cluster: Optional[str] = None
         self.current_context: Optional[str] = None
+        self.favorites = FavoritesManager()
         self._load_current_state()
     
     def _load_current_state(self):
@@ -477,6 +570,7 @@ class GCPSwitcher:
             print_success(f"Account switched to {Colors.BRIGHT_CYAN}{account}{Colors.RESET}")
             return True
         print_error("Failed to switch account")
+        wait_for_keypress()
         return False
     
     def switch_project(self, project: str) -> bool:
@@ -488,6 +582,7 @@ class GCPSwitcher:
             print_success(f"Project switched to {Colors.BRIGHT_CYAN}{project}{Colors.RESET}")
             return True
         print_error("Failed to switch project")
+        wait_for_keypress()
         return False
     
     def get_cluster_credentials(self, cluster_name: str, zone: str, regional: bool = False) -> bool:
@@ -509,6 +604,7 @@ class GCPSwitcher:
             return True
         except subprocess.CalledProcessError:
             print_error("Failed to fetch credentials")
+            wait_for_keypress()
             return False
     
     def switch_kubectl_context(self, context: str) -> bool:
@@ -521,6 +617,7 @@ class GCPSwitcher:
             return True
         except subprocess.CalledProcessError:
             print_error("Failed to switch context")
+            wait_for_keypress()
             return False
     
     def auth_login(self) -> bool:
@@ -533,6 +630,7 @@ class GCPSwitcher:
             return True
         except subprocess.CalledProcessError:
             print_error("Login failed")
+            wait_for_keypress()
             return False
     
     # ============ 대화형 메뉴 ============
@@ -561,28 +659,61 @@ class GCPSwitcher:
             self.switch_account(choice)
         return choice
     
+    def _build_project_list(self, projects: List[str]) -> List[str]:
+        """즐겨찾기 우선 정렬된 프로젝트 목록 생성"""
+        favorites = [p for p in projects if self.favorites.is_favorite(p)]
+        others = [p for p in projects if not self.favorites.is_favorite(p)]
+
+        items = []
+        for p in favorites:
+            items.append(f"⭐ {p}")
+        if favorites and others:
+            items.append("──── All Projects ────")
+        items.extend(others)
+        return items
+
+    def _toggle_project_favorite(self, item: str) -> Optional[List[str]]:
+        """즐겨찾기 토글 콜백 — 구분선 선택 시 무시"""
+        if item.startswith("────"):
+            return None
+        project = item.replace("⭐ ", "")
+        self.favorites.toggle(project)
+        return self._build_project_list(self._cached_projects)
+
     def menu_select_project(self) -> Optional[str]:
         """프로젝트 선택 메뉴"""
         projects = self.get_projects()
-        
+
         if not projects:
             print_warning("No accessible projects found.")
+            wait_for_keypress()
             return None
-        
+
+        self._cached_projects = projects
+        display_items = self._build_project_list(projects)
+
         selector = InteractiveSelector(
-            projects,
+            display_items,
             "Select Project",
             self.current_project,
-            "📁"
+            "📁",
+            on_toggle_favorite=self._toggle_project_favorite,
         )
         choice = selector.select()
-        
+
         if choice is None:
             return None
-        
-        if choice != self.current_project:
-            self.switch_project(choice)
-        return choice
+
+        # 구분선 선택 방지
+        if choice.startswith("────"):
+            return None
+
+        # ⭐ 접두어 제거
+        project = choice.replace("⭐ ", "")
+
+        if project != self.current_project:
+            self.switch_project(project)
+        return project
     
     def menu_select_cluster(self) -> Optional[str]:
         """GKE 클러스터 선택 및 크레덴셜 획득"""
@@ -590,6 +721,7 @@ class GCPSwitcher:
         
         if not clusters:
             print_warning("No GKE clusters found in this project.")
+            wait_for_keypress()
             # 기존 context 해제
             self.clear_kubectl_context()
             return None
@@ -643,6 +775,7 @@ class GCPSwitcher:
         
         if not contexts:
             print_warning("No kubectl contexts found.")
+            wait_for_keypress()
             return None
         
         selector = InteractiveSelector(
